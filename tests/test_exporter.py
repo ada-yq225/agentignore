@@ -18,7 +18,7 @@ def test_export_markdown_report(tmp_path: Path):
                 "path": ".env",
                 "severity": "CRITICAL",
                 "category": "sensitive",
-                "unshielded_targets": [".claude/settings.json"],
+                "unshielded_targets": [".codex/config.toml"],
                 "estimated_tokens": 100,
             }
         ],

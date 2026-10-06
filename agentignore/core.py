@@ -138,7 +138,7 @@ def audit_repository(repo_path: Path, target_names: Optional[List[str]] = None,
         for directory in dirs:
             if (Path(root) / directory).is_symlink():
                 report.configuration_errors.append(f'Symlink directory not inspected: {(Path(root) / directory).relative_to(repo_path)}')
-        dirs[:] = [d for d in dirs if d not in {'.git', '.hg', '.svn', '.codex', '.claude'}
+        dirs[:] = [d for d in dirs if d not in {'.git', '.hg', '.svn', '.codex'}
                    and not (Path(root) / d).is_symlink()]
         for filename in files:
             path = Path(root) / filename

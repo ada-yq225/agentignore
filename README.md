@@ -1,200 +1,142 @@
 # agentignore
 
-**Local privacy and context controls for your personal Codex and Claude Code projects.**
+**永久免费、MIT 开源，只为个人开发者的 Codex 项目提供本地权限配置与检查。**
 
-agentignore Personal helps you review one project, understand findings, preview permission changes, and keep the two clients configured consistently. It runs locally without uploading source code or credentials. This is the 0.3 product MVP; the CLI is MIT licensed and no paid account is required.
+把敏感文件、无需加入上下文的产物目录整理成一份策略，预览后编译到项目 `.codex/config.toml`。所有功能免费，无账号、订阅、付费版本或源代码上传。当前版本：**0.4.0**。
 
-Maintain one `.agentignore` input and compile it into each client's documented configuration:
+它检查项目里的静态配置；检查通过不代表 Codex 的实际会话已加载权限，也不保证零泄露。
 
-| Target | Output | What is configured |
-| --- | --- | --- |
-| `codex` | `.codex/config.toml` | Named `agentignore` permission profile, based on `:workspace`, with workspace-scoped filesystem deny rules |
-| `claude` | `.claude/settings.json` | `permissions.deny` entries for built-in `Read` and `Edit` tools |
+## 三分钟开始
 
-This is a configuration tool, **not a universal security boundary**. A successful static check does not establish that a running agent cannot access your files.
-
-## Personal quickstart
-
-Install from this repository or the supplied 0.3 wheel (0.3 is not yet published to PyPI):
-
-```sh
-python -m pip install .
-agentignore policy init --preset secrets --name "My project"
-agentignore doctor
+```bash
+pip install .
+cd /path/to/your/project
+agentignore policy init --preset secrets
 agentignore sync --dry-run --diff
 agentignore sync
-agentignore check --deep --export agentignore-report.html
+agentignore doctor
+agentignore check --deep --export /tmp/agentignore-report.html
 ```
 
-Open the HTML report in any modern browser. It works offline, shows concrete next steps, and supports filename search and severity filters. Reports contain filenames and masked findings, not source file contents; review them before sharing.
+重启 Codex，确认项目受信任、配置已加载。在 macOS 上，可用以下命令验证一个公开文件能读取、一个假 `.env` 文件被拒绝；不会调用模型或使用真实密钥：
 
-For projects where generated outputs and dependency files are irrelevant to your agent, use `--preset balanced` during policy initialization. This restricts those reads too, so review the preview before applying it. Lockfiles remain accessible unless you explicitly exclude them.
+```bash
+agentignore verify --json
+```
 
-Both clients are selected by default. Choose `policy init --targets codex` or `--targets claude` for a single-client project. Unknown or removed target names fail explicitly. CLI target flags override the project's preferences for that invocation only.
+自动验证目前只支持 macOS 上显式选定的本地权限 profile。其他平台和普通会话的有效权限仍须验证。请先用无敏感内容的测试项目尝试配置。
 
-Before using the settings, restart the client and review effective permissions. Codex project configuration requires trust. Permission profiles are beta; use a current client that supports `default_permissions`, named profiles, `extends`, and filesystem `deny` rules. The documented migration baseline is Codex 0.138.0; the local sandbox canary was tested with 0.159.2 on macOS (see [VALIDATION.md](VALIDATION.md)).
+手动检查时，在已同步且受信任的测试项目中创建内容为 `DEMO_ONLY` 的 `.env.agentignore-canary` 和普通 `public.txt`。分别运行 `codex sandbox -P agentignore -- /bin/cat public.txt` 和 `codex sandbox -P agentignore -- /bin/cat .env.agentignore-canary`：前者应可读取，后者应收到权限拒绝且不输出文件内容。如果平台不支持此沙箱命令或测试失败，请将运行时状态视为未验证，不要据此处理真实密钥。
 
-## Personal project preferences
+## 模板与项目设置
 
-`policy init` creates `.agentignore.toml` without overwriting existing preferences:
+- `secrets`：拒绝常见环境文件、私钥和凭据文件名。
+- `balanced`：在 secrets 基础上，加上 `node_modules`、虚拟环境、构建产物和覆盖率目录。确认 Codex 不需要访问这些文件后再使用。
+
+`.agentignore.toml` 可编辑；未知键、非法类型、无效模式会明确报错：
 
 ```toml
 version = 1
 
 [project]
 name = "My weekend project"
-targets = ["codex", "claude"]
+targets = ["codex"]
 
 [policy]
-preset = "secrets" # or "balanced"
-deny = ["/private-data/"]
+preset = "secrets"
+deny = ["/internal/", "*.dump"]
 
 [check]
 fail_on = "high"
 ```
 
-Run `agentignore policy show` for the effective settings and deny patterns. `.agentignore` remains supported as an additional deny-only input. Sensitive defaults always remain present. Unknown settings and unsupported patterns fail before output configs are modified.
-
-Presets do not enable any client sandbox or bypass mode implicitly. They only compile the documented permission rules described below.
-
-## Input policy
-
-Sensitive defaults (`.env`, `.env.*`, private-key and credential filename patterns) are always added. `.agentignore` is optional, hand-maintained, and never rewritten:
-
-```gitignore
-# Optional project-specific exclusions
-/private-data/
-node_modules/
-dist/
-*.log
+```bash
+agentignore policy show
 ```
 
-The syntax is deliberately smaller than `.gitignore`:
+也可在 `.agentignore` 中每行写一个拒绝模式。敏感文件默认规则始终加入；`.gitignore` 不会自动导入。支持项目相对路径、`*`、`?`、`**`、末尾 `/` 和以 `/` 开头的根目录模式。无 `/` 的文件名匹配任意深度；`/private/` 匹配根目录，`private/` 匹配任意深度目录。
 
-- A basename like `.env` or `*.key` matches at any depth.
-- `/private-data/` anchors at the project root; `private-data/` matches directory basenames at any depth.
-- A path containing a slash, like `config/*.json`, is rooted at the project root.
-- A trailing `/` expands to `/**`. `*`, `?`, and `**` are supported.
-- Negation (`!`), character classes, escapes, parent traversal, whitespace and parentheses are rejected before writing either output. Do not copy a full `.gitignore` into this file.
+不支持 `!` 反选、`[]` 字符集、空白、转义、括号、绝对路径或 `..`。这是明确的拒绝策略子集，不是完整 gitignore 语法。锁文件默认仅作为建议，可用 `sync --include-lockfiles` 明确加入拒绝策略。
 
-`.gitignore` is **not automatically imported**. Version-control exclusions and agent access permissions serve different purposes. Artifact and lockfile exclusions can prevent useful debugging or dependency updates: choose them deliberately. `sync --include-lockfiles` adds lockfile deny rules explicitly.
+## 安全预览、合并与恢复
 
-The previous release generated `.claudeignore` and other vendor-named ignore files. These files do not count as permissions in 0.2. Migrate custom exclusions into the supported input syntax yourself; this release does not alter existing legacy files in your project.
-
-## Safe synchronization
-
-`sync` preflights the selected outputs before writing. `--dry-run --diff` previews only added permission entries; private model, environment and other configuration values are never printed in that preview. `--dry-run --json` returns a machine-readable plan. It merges Claude deny entries while preserving existing model, environment, hooks and allow rules. Codex TOML comments and unrelated settings are preserved. Existing files receive a first-write `*.agentignore.bak` backup, and repeated syncs are idempotent. No home-directory or managed settings are modified.
-
-Codex refuses to replace an existing selected profile or an unowned `agentignore` profile. Local legacy `sandbox_mode` / `sandbox_workspace_write` settings must be migrated explicitly; they take precedence over permission profiles. Inherited legacy settings and command-line overrides require your review too. Claude configurations using `bypassPermissions` are rejected.
-
-Synchronization is additive: previously compiled deny rules remain if you remove a pattern from the input. Remove obsolete entries from each output manually after review. Do not use the generated profile for custom read/write exceptions: mixed overrides are rejected. Symlink settings files/directories are refused. Each output is replaced atomically; a filesystem failure between outputs can still leave a partial sync, so inspect errors and backups.
-
-## Audit and reports
-
-```sh
-agentignore check --deep
-agentignore check --export audit.json
-agentignore check --export audit.md
-agentignore --lang zh check
+```bash
+agentignore sync --dry-run --diff
+agentignore sync --dry-run --json
+agentignore diff
 ```
 
-Checks report files with missing modeled project-local deny rules, optional artifact recommendations, secret signatures, and malformed/conflicting configuration. Exit codes: `0` no blocking findings at the configured threshold, `1` blocking findings or configuration/scan errors, `2` invalid input or an operational error. Default threshold `high` blocks sensitive files and explicit policy violations while retaining medium artifact recommendations without failing the check. `--fail-on medium` makes those recommendations blocking. `--no-strict` makes findings return `0`; input errors still return `2`. `is_clean` means no findings at all, and remains separate from `gate_failed`.
+预览只列出新增权限条目，不打印模型、环境变量等私有配置值。同步保留 TOML 注释和无关设置，只管理 `agentignore` 权限 profile；不会修改用户主目录配置。首次修改已有配置时保存 `config.toml.agentignore.bak`，重复同步保持幂等。新配置使用私有文件权限；更新保留原文件权限。
 
-JSON reports are schema-versioned (`schema_version: 1.0`) and include stable finding IDs, rule IDs, line locations for secret signatures, remediation text, and severity summaries. Reports explicitly include `assessment: static_configuration_only`, `runtime_verified: false`, configuration errors, and limitations. `.agentignore` alone never clears findings. Deep secret findings remain visible even when a deny rule covers the source file; rotate/remove real exposed credentials rather than merely excluding source code.
+编译器拒绝替换其他已选 profile、未带所有权标记的同名 profile、符号链接配置和备份。已有 `sandbox_mode` / `sandbox_workspace_write` 必须先明确迁移，因为旧设置会影响权限 profile。
 
-The inspector models project-root-anchored Claude `Read(/...)` rules and Codex deny-only workspace tables extending a built-in profile. Unsupported inheritance or mixed Codex read/write overrides are reported as unknown rather than protected. Alternative Claude path forms do not count as coverage in this conservative checker. Existing policy files, VCS directories and `.codex` / `.claude` configuration directories are not scanned for file findings. Symlinks are reported but not followed. Deep scanning skips binary files, files over 1 MB, and lines over 5000 characters. For comprehensive secret detection, use a dedicated secret scanner.
+同步是**追加式**的：从输入删除模式不会自动撤销现有拒绝规则，避免无意扩大访问。需要回到首次同步前的已有配置时：
 
-## Optional acknowledgements
-
-Known low/medium noise can be acknowledged with a reason and expiry within 90 days:
-
-```sh
-agentignore baseline create --reason "Lockfile needed for dependency work" --expires YYYY-MM-DD
-agentignore check --fail-on medium --baseline .agentignore-baseline.json --export report.html
+```bash
+agentignore restore --dry-run --json
+agentignore restore
 ```
 
-Replace `YYYY-MM-DD` with a real expiry date. Baselines are never auto-loaded. Findings remain visible and `is_clean` stays false; acknowledged findings are excluded only from the threshold gate. Expired entries stop applying. Baselines cannot acknowledge high/critical risks or configuration errors, even if edited by hand. Existing baseline files are not overwritten automatically.
+恢复会替换当前受 agentignore 管理的配置，并将当前配置保存为 `config.toml.agentignore.before-restore.bak`，原始备份仍保留。恢复后重启 Codex 并检查权限。没有原始备份的新建配置不会自动删除；存在恢复快照、异常备份或临时文件时会停止，让你先检查文件。
 
-## CI-compatible results
+## 报告与风险阈值
 
-```sh
-agentignore check --deep --format sarif --export report.sarif
+```bash
+agentignore check --deep --export /tmp/agentignore-report.html
 agentignore check --json
+agentignore check --format sarif --export /tmp/agentignore-report.sarif
+agentignore check --export /tmp/agentignore-report.md
 ```
 
-SARIF 2.1.0 includes relative, URI-encoded filenames, line locations, stable fingerprints, explicit acknowledgements and configuration error notifications. The format was checked against the OASIS schema. It does not upload to GitHub automatically. Use it with your own CI runner or supported viewer.
+HTML 报告离线运行，可搜索路径、筛选风险级别，包含修复建议。JSON 包含版本、稳定 finding ID 和阈值结果；SARIF 支持标准工具集成。报告不嵌入源码或完整凭据，但文件名和脱敏片段仍可能敏感，分享前请检查。
 
-## Verify the actual client
+| 风险 | 默认行为 |
+| --- | --- |
+| CRITICAL：敏感文件缺少拒绝规则、疑似硬编码密钥 | 阻止检查通过 |
+| HIGH：显式策略未配置到 Codex | 阻止检查通过 |
+| MEDIUM：生成文件、锁文件等建议 | 显示建议，不阻止默认检查 |
+| 配置或文件扫描错误 | 阻止检查通过 |
 
-On macOS, the CLI can test the generated Codex profile with a harmless temporary project:
+`--fail-on medium` 可提高检查严格程度，`--no-strict` 只改变退出状态。JSON 的 `is_clean` 表示没有发现或错误，`gate_failed` 表示选定阈值是否失败，两者含义不同。退出码：0 达到所选阈值，1 阈值未通过，2 输入或操作错误。
 
-```sh
-agentignore verify --target codex --json
+低/中风险建议可明确确认，必须给理由和最多 90 天的有效期；发现仍保留在报告中，高风险、严重风险和配置错误无法隐藏：
+
+```bash
+agentignore baseline create --reason "Required for dependency updates" --expires YYYY-MM-DD
+agentignore check --fail-on medium --baseline .agentignore-baseline.json
 ```
 
-It checks that a public file is readable and a fake `.env.agentignore-canary` is refused. It copies only the named permission profile, supplies temporary trust through an invocation-local override, and never makes a model request or changes persistent user settings. A pass verifies that explicit profile and canary invocation only; it does not verify all paths or ordinary sessions. Automatic Claude verification and other platforms are not implemented.
+`YYYY-MM-DD` 请替换为今天起 90 天内的日期。未显式传入 `--baseline` 时不会应用确认记录。
 
-For manual checks, use fake canaries, never production credentials. For Codex, create `.env.agentignore-canary` containing a harmless string and `agentignore-public-canary.txt` containing another string, then run from the project root:
+## Codex 权限边界
 
-```sh
-codex sandbox -P agentignore -C . -- /bin/cat agentignore-public-canary.txt
-codex sandbox -P agentignore -C . -- /bin/cat .env.agentignore-canary
-```
+输出为命名的 `agentignore` profile，默认继承 `:workspace`，在 `filesystem.:workspace_roots` 中加入 deny 规则。权限 profiles 仍是 beta，格式和平台行为可能变化。
 
-The first command should succeed; the second should fail with a permission error. This explicitly selects the profile. Separately confirm that ordinary sessions load the intended default profile; explicit selection does not prove project trust or configuration precedence. Platform failures are not a passing security check. Delete canaries after testing.
+- 只有受沙箱约束的本地命令在本次配置范围内；MCP、连接器、云端任务和获准提权有独立控制。
+- 项目信任、用户/托管配置、命令行覆盖和旧沙箱设置都可能改变实际权限。
+- 静态检查保守建模直接继承内置 profile 的 deny-only 工作区规则；未知继承或混合 read/write 覆盖会报错。
+- 扫描跳过 VCS 和 `.codex` 配置目录，不跟随符号链接。深度扫描跳过二进制、超过 1 MB 的文件和超过 5000 字符的行，并非完整秘密扫描器。
+- canary 通过只证明显式 profile 对公开文件和假环境文件的当前观察结果，不证明所有路径、其他平台或普通会话。
 
-For Claude Code, review `/permissions`, restart from the project root, and ask it to read the same fake secret through its built-in Read tool. Verify refusal. Read/Edit deny rules also cover recognized Bash file commands in current Claude versions, but do **not** cover arbitrary scripts that open files indirectly. For stronger command isolation, configure Claude's OS sandbox separately. This release does not change sandbox or MCP policies.
+参见官方 [Codex permissions](https://developers.openai.com/codex/permissions/) 与 [Codex configuration reference](https://developers.openai.com/codex/config-reference/)。
 
-## Limits of enforcement
+## 从 0.3 升级
 
-- Codex profiles govern sandboxed local commands. MCP, connectors, cloud environments, browser tools, and approved escalations have separate controls.
-- Claude deny rules do not form an OS-level barrier for arbitrary subprocesses or MCP tools.
-- User settings, managed policies, project trust, CLI overrides and bypass modes can change effective permissions.
-- Codex deny globs may be expanded at sandbox startup on some platforms. The generated scan depth is 20; files beyond the supported expansion depth or created later require runtime verification.
-- Files already included in chat, editor selections, environment variables, and external services are outside this scanner's assessment.
+0.4 起仅支持 Codex。已有 `.agentignore.toml` 中的 `project.targets` 改为 `["codex"]`。`--targets claude` 会明确报错；旧的其他客户端文件会保留，不读取、不修改或删除。若曾用旧版生成 vendor ignore 文件，它们不计为 Codex 权限；请将自定义模式移入上述策略输入。
 
-See the official [Codex permissions](https://developers.openai.com/codex/permissions/), [Codex configuration reference](https://developers.openai.com/codex/config-reference/), [Claude permissions](https://code.claude.com/docs/en/permissions), [Claude settings](https://code.claude.com/docs/en/settings), and [Claude sandbox](https://code.claude.com/docs/en/sandboxing) documentation. Configuration formats can change.
+JSON 中保留 targets 相关字段，兼容已有消费方，但唯一支持的目标是 Codex。
 
-## Context estimates
+## 开发与开源
 
-```sh
-agentignore cost --queries 100 --input-rate 3
-```
-
-This estimates a **hypothetical full-read scenario**, using flagged text bytes / 4 and your explicit USD price per million input tokens. It is not measured usage or savings. Actual reads, tokenization, cache discounts, subscriptions and billing vary. No provider pricing is hardcoded.
-
-## Git hook
-
-```sh
-agentignore hook install
-agentignore hook uninstall
-```
-
-The optional hook runs a working-tree static check. It is not a staged-index secret scanner and cannot guarantee secrets are never committed. Installation refuses to overwrite another tool's hook. Git worktree hook discovery and `core.hooksPath` are not supported in this release; integrate the CLI with your existing hook runner instead.
-
-## 中文说明
-
-agentignore Personal 面向个人开发者，针对 **Codex 和 Claude Code**，把统一的拒绝访问策略编译到真实配置中：
-
-- Codex：`.codex/config.toml` 中的命名权限配置，限制本地沙箱命令。
-- Claude Code：`.claude/settings.json` 中的 `Read` / `Edit` 拒绝规则。
-- `.agentignore` 仅是输入文件，不会自动让任何客户端受到保护；检查通过也不代表零泄漏。
-
-先用 `policy init` 创建个人项目策略，运行 `doctor` 检查客户端，再运行 `sync --dry-run --diff` 预览权限变更，最后执行 `sync`。使用 `check --deep --export report.html` 生成本地可筛选报告。已有配置会合并并备份；模型设置和其他配置会保留。存在旧沙箱配置、其他已选权限配置或不支持的规则时，先报告冲突，不自动覆盖。
-
-只支持路径、`*`、`?`、`**`，不支持 `!` 例外。默认加入敏感文件规则；构建产物、依赖目录和锁文件由你明确选择，不直接复制 `.gitignore`。拒绝规则是累加的，移除输入后需要手动审查并移除输出中的旧规则。
-
-重启客户端，确认项目受信任和权限配置已加载，再用假密钥文件验证拒绝读取。Codex 的 MCP、云端及提权执行，Claude 的任意脚本和 MCP，不在这次配置的统一保护范围内。成本输出是明确假设下的估算，不是实测节省费用。
-
-## Commercial product direction
-
-The current CLI and reports are available without a paid account. A desktop project library, visual policy editor, history, signed installers and billing are planned rather than implemented. See [PRODUCT.md](PRODUCT.md) for the personal-user pilot, pricing hypothesis and launch criteria. No payment is accepted here.
-
-## Development
-
-```sh
-python -m pip install -e '.[dev]'
+```bash
+pip install -e '.[dev]'
 python -m pytest -q
+# macOS 上已安装 Codex CLI 时，可启用实际沙箱测试：
+AGENTIGNORE_RUN_CODEX_CANARY=1 python -m pytest -q
 ```
 
-MIT licensed. See [LICENSE](LICENSE).
+贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，项目方向见 [PRODUCT.md](PRODUCT.md)，当前验证范围见 [VALIDATION.md](VALIDATION.md)。MIT 许可证允许自由使用、修改和再分发；本项目所有功能永久免费，不提供付费分层。
+
+## English
+
+agentignore is permanently free, MIT open source, local-first and **Codex only**. It compiles project deny rules into `.codex/config.toml`, offers safe previews and backup restoration, produces offline reports, and provides a macOS fake-secret canary. There is no account, subscription, paid tier or telemetry. Static coverage is not proof of runtime enforcement. Version 0.3 projects must change `project.targets` to `["codex"]`; unrelated client files remain untouched.

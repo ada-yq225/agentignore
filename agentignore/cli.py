@@ -19,7 +19,7 @@ from agentignore.reports import export_html_report, export_sarif_report, sarif_r
 from agentignore.hooks import install_pre_commit_hook, uninstall_pre_commit_hook
 from agentignore.i18n import detect_system_language
 from agentignore.project import PRESETS, SEVERITIES, initialize_settings, load_settings
-from agentignore.syncer import compute_ignore_diff, plan_repository, sync_repository, validate_targets
+from agentignore.syncer import compute_ignore_diff, plan_repository, restore_repository, sync_repository, validate_targets
 
 console = Console()
 
@@ -39,16 +39,16 @@ def _export(data, path, format=None):
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog='agentignore', description='Local privacy and context controls for your Codex and Claude projects')
+    parser = argparse.ArgumentParser(prog='agentignore', description='Local privacy and context controls for your Codex projects')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument('--lang', choices=['en', 'zh'], default=None)
     commands = parser.add_subparsers(dest='command')
-    for command in ('check', 'audit', 'sync', 'init', 'diff', 'targets', 'cost', 'hook', 'policy', 'doctor', 'baseline', 'verify'):
+    for command in ('check', 'audit', 'sync', 'init', 'diff', 'targets', 'cost', 'hook', 'policy', 'doctor', 'baseline', 'verify', 'restore'):
         sub = commands.add_parser(command)
         sub.add_argument('--path', '-p', default='.')
         if command in ('check', 'audit', 'sync', 'init', 'policy', 'doctor', 'baseline', 'verify'):
-            sub.add_argument('--targets', '-t', help='codex,claude (default: project settings)')
-        if command in ('check', 'audit', 'sync', 'init', 'policy', 'doctor', 'verify'):
+            sub.add_argument('--targets', '-t', help='codex (only supported target)')
+        if command in ('check', 'audit', 'sync', 'init', 'policy', 'doctor', 'verify', 'restore'):
             sub.add_argument('--json', action='store_true')
         if command in ('check', 'audit'):
             sub.add_argument('--strict', action='store_true', default=True)
@@ -67,6 +67,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             sub.add_argument('action', choices=['init', 'show'])
             sub.add_argument('--preset', choices=list(PRESETS), default='secrets')
             sub.add_argument('--name')
+            sub.add_argument('--dry-run', action='store_true')
+        if command == 'restore':
             sub.add_argument('--dry-run', action='store_true')
         if command == 'baseline':
             sub.add_argument('action', choices=['create'])
@@ -90,6 +92,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         if not root.is_dir():
             raise ValueError(f'Not a directory: {root}')
+        if args.command == 'restore':
+            data = restore_repository(root, args.dry_run)
+            if args.json:
+                _output(data)
+            else:
+                action = 'would be saved' if args.dry_run else 'saved'
+                console.print(f'{data["path"]}: {data["status"]}; current settings {action} to {data["recovery"]}', markup=False)
+                console.print('Restoring replaces the managed policy with the original settings. Restart Codex and review its permissions.')
+            return 0
         settings = load_settings(root)
         explicit_targets = [x.strip() for x in args.targets.split(',')] if getattr(args, 'targets', None) else None
         targets = validate_targets(explicit_targets if explicit_targets is not None else settings.targets)

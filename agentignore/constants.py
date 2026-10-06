@@ -6,8 +6,6 @@ from typing import Dict, List
 SUPPORTED_TARGETS: Dict[str, Dict[str, str]] = {
     "codex": {"name": "Codex", "filename": ".codex/config.toml",
               "description": "Local sandbox permission profile (beta)"},
-    "claude": {"name": "Claude Code", "filename": ".claude/settings.json",
-               "description": "Built-in Read/Edit deny rules"},
 }
 TARGET_FILENAME_MAP = {key: info["filename"] for key, info in SUPPORTED_TARGETS.items()}
 FILENAME_TO_TARGET_MAP = {v: k for k, v in TARGET_FILENAME_MAP.items()}

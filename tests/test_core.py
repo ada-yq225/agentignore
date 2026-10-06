@@ -15,7 +15,7 @@ def test_input_file_cannot_shield_unconfigured_clients(tmp_path):
     report = audit_repository(tmp_path)
     assert not report.is_clean
     assert report.critical_leaks_count == 1
-    assert report.leaks[0].unshielded_targets == ['.codex/config.toml', '.claude/settings.json']
+    assert report.leaks[0].unshielded_targets == ['.codex/config.toml']
     assert report.to_dict()['runtime_verified'] is False
 
 
@@ -30,16 +30,16 @@ def test_generated_settings_cover_root_and_nested_secrets(tmp_path):
     assert report.limitations
 
 
-def test_legacy_claudeignore_is_not_a_permission(tmp_path):
+def test_legacy_ignore_is_not_a_permission(tmp_path):
     (tmp_path / '.claudeignore').write_text('.env\n')
     (tmp_path / '.env').write_text('placeholder')
-    assert not audit_repository(tmp_path, ['claude']).is_clean
+    assert not audit_repository(tmp_path).is_clean
 
 
 def test_malformed_config_cannot_pass_empty_repo(tmp_path):
-    (tmp_path / '.claude').mkdir()
-    (tmp_path / '.claude/settings.json').write_text('{broken')
-    report = audit_repository(tmp_path, ['claude'])
+    (tmp_path / '.codex').mkdir()
+    (tmp_path / '.codex/config.toml').write_text('[broken')
+    report = audit_repository(tmp_path)
     assert not report.is_clean
     assert report.configuration_errors
 

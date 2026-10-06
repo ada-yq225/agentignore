@@ -15,7 +15,7 @@ SEVERITIES = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
 class ProjectSettings:
     name: str = 'Personal project'
     preset: str = 'secrets'
-    targets: list = field(default_factory=lambda: ['codex', 'claude'])
+    targets: list = field(default_factory=lambda: ['codex'])
     deny: list = field(default_factory=list)
     fail_on: str = 'high'
 
@@ -32,7 +32,7 @@ def load_settings(root: Path) -> ProjectSettings:
     data = tomlkit.parse(path.read_text(encoding='utf-8'))
     if set(data) - {'version', 'project', 'policy', 'check'}:
         raise ValueError(f'Unknown top-level setting in {SETTINGS_FILE}')
-    if data.get('version') != 1 or isinstance(data.get('version'), bool):
+    if not isinstance(data.get('version'), int) or isinstance(data.get('version'), bool) or data['version'] != 1:
         raise ValueError(f'{SETTINGS_FILE}: version must be 1')
     for section, keys in [('project', {'name', 'targets'}), ('policy', {'preset', 'deny'}), ('check', {'fail_on'})]:
         value = data.get(section, {})
@@ -40,7 +40,7 @@ def load_settings(root: Path) -> ProjectSettings:
             raise ValueError(f'Invalid or unknown {section} setting in {SETTINGS_FILE}')
     settings = ProjectSettings(
         name=data.get('project', {}).get('name', root.name),
-        targets=data.get('project', {}).get('targets', ['codex', 'claude']),
+        targets=data.get('project', {}).get('targets', ['codex']),
         preset=data.get('policy', {}).get('preset', 'secrets'),
         deny=data.get('policy', {}).get('deny', []),
         fail_on=data.get('check', {}).get('fail_on', 'high'),
@@ -51,8 +51,8 @@ def load_settings(root: Path) -> ProjectSettings:
 def _validate(settings):
     if not isinstance(settings.name, str) or not settings.name.strip() or len(settings.name) > 120:
         raise ValueError('project.name must contain 1–120 characters')
-    if not isinstance(settings.targets, list) or not settings.targets or any(x not in ('codex', 'claude') for x in settings.targets):
-        raise ValueError('project.targets must be a nonempty array containing codex and/or claude')
+    if not isinstance(settings.targets, list) or not settings.targets or any(x not in ('codex',) for x in settings.targets):
+        raise ValueError('Only Codex is supported; set project.targets = ["codex"] in .agentignore.toml')
     if not isinstance(settings.preset, str) or settings.preset not in PRESETS:
         raise ValueError('policy.preset must be secrets or balanced')
     if not isinstance(settings.deny, list) or any(not isinstance(x, str) for x in settings.deny):
@@ -71,9 +71,9 @@ def initialize_settings(root: Path, preset='secrets', targets=None, name=None, d
     path = root / SETTINGS_FILE
     if path.exists() or path.is_symlink():
         raise ValueError(f'{SETTINGS_FILE} already exists; use policy show and edit it explicitly')
-    settings = _validate(ProjectSettings(name=name if name is not None else root.name, preset=preset, targets=targets if targets is not None else ['codex', 'claude']))
+    settings = _validate(ProjectSettings(name=name if name is not None else root.name, preset=preset, targets=targets if targets is not None else ['codex']))
     document = tomlkit.document()
-    document.add(tomlkit.comment('Personal Codex / Claude policy. No source code or credentials are uploaded.'))
+    document.add(tomlkit.comment('Personal Codex policy. No source code or credentials are uploaded.'))
     document['version'] = 1
     document['project'] = {'name': settings.name, 'targets': settings.targets}
     document['policy'] = {'preset': settings.preset, 'deny': []}

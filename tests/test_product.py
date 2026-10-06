@@ -12,19 +12,20 @@ from agentignore.syncer import plan_repository, sync_repository
 
 
 def test_personal_settings_honor_single_client_and_preset(tmp_path):
-    initialize_settings(tmp_path, 'balanced', ['claude'], 'My side project')
+    initialize_settings(tmp_path, 'balanced', ['codex'], 'My side project')
     settings = load_settings(tmp_path)
-    assert settings.targets == ['claude']
+    assert settings.targets == ['codex']
     assert settings.preset == 'balanced'
     (tmp_path / 'dist').mkdir()
     (tmp_path / 'dist/app.js').write_text('generated')
     assert audit_repository(tmp_path).leaks[0].severity == 'HIGH'
     sync_repository(tmp_path)
-    assert not (tmp_path / '.codex').exists()
+    assert not (tmp_path / '.claude').exists()
     assert audit_repository(tmp_path).is_clean
 
 
 @pytest.mark.parametrize('invalid', ['version=2', 'version=1\nunknown=true', 'version=1\n[check]\nfail_on="typo"',
+                                    'version=1.0', 'version=true', 'version=1\n[project]\ntargets=["codex","claude"]',
                                     'version=1\n[policy]\npreset=[]', 'version=1\n[project]\ntargets=[]',
                                     'version=1\n[policy]\ndeny=["!unsafe"]'])
 def test_settings_fail_closed(tmp_path, invalid):
@@ -103,20 +104,20 @@ def test_baseline_creation_requires_reason_and_bounded_expiry(tmp_path, reason, 
 
 
 def test_dry_run_diff_does_not_expose_existing_config_values(tmp_path, capsys):
-    (tmp_path / '.claude').mkdir()
-    (tmp_path / '.claude/settings.json').write_text('{"env":{"DEMO":"PRIVATE_CONFIG_VALUE"}}')
-    assert main(['sync', '--path', str(tmp_path), '--targets', 'claude', '--dry-run', '--diff']) == 0
+    (tmp_path / '.codex').mkdir()
+    (tmp_path / '.codex/config.toml').write_text('model="PRIVATE_CONFIG_VALUE"')
+    assert main(['sync', '--path', str(tmp_path), '--targets', 'codex', '--dry-run', '--diff']) == 0
     output = capsys.readouterr().out
-    assert 'Read(/**/.env)' in output
+    assert '**/.env' in output
     assert 'PRIVATE_CONFIG_VALUE' not in output
-    assert json.loads((tmp_path / '.claude/settings.json').read_text()) == {'env': {'DEMO':'PRIVATE_CONFIG_VALUE'}}
+    assert (tmp_path / '.codex/config.toml').read_text() == 'model="PRIVATE_CONFIG_VALUE"'
 
 
 def test_rule_ids_stable_when_config_coverage_changes(tmp_path):
-    (tmp_path / '.env').write_text('placeholder')
-    first = audit_repository(tmp_path).leaks[0].finding_id
-    sync_repository(tmp_path, ['claude'])
-    second = audit_repository(tmp_path).leaks[0].finding_id
+    (tmp_path / 'app.py').write_text('key="ghp_' + 'a' * 36 + '"')
+    first = audit_repository(tmp_path, deep_scan=True).leaks[0].finding_id
+    sync_repository(tmp_path, ['codex'])
+    second = audit_repository(tmp_path, deep_scan=True).leaks[0].finding_id
     assert first == second
 
 
@@ -205,3 +206,73 @@ def test_anthropic_signature_is_not_misclassified_as_openai(tmp_path):
     path.write_text('key="sk-ant-' + 'x' * 35 + '"')
     found = scan_file_content(path)
     assert len(found) == 1 and found[0].secret_type == 'Anthropic API Key'
+
+
+def test_only_codex_is_advertised_and_claude_config_is_untouched(tmp_path, capsys):
+    from agentignore.constants import SUPPORTED_TARGETS
+    assert list(SUPPORTED_TARGETS) == ['codex']
+    path = tmp_path / '.claude/settings.json'
+    path.parent.mkdir()
+    path.write_text('{"personal":"unchanged"}')
+    assert main(['sync', '--path', str(tmp_path)]) == 0
+    assert path.read_text() == '{"personal":"unchanged"}'
+    assert not path.with_name('settings.json.agentignore.bak').exists()
+    capsys.readouterr()
+    assert main(['sync', '--path', str(tmp_path), '--targets', 'claude', '--json']) == 2
+    assert 'Supported targets: codex' in capsys.readouterr().out
+
+
+def test_restore_preserves_original_and_current_configs(tmp_path):
+    from agentignore.syncer import restore_repository
+    path = tmp_path / '.codex/config.toml'
+    path.parent.mkdir()
+    original = '# original settings\nmodel="example"\n'
+    path.write_text(original)
+    path.chmod(0o600)
+    sync_repository(tmp_path)
+    managed = path.read_bytes()
+    assert restore_repository(tmp_path, dry_run=True)['status'] == 'would_restore'
+    assert path.read_bytes() == managed
+    recovery = path.with_name('config.toml.agentignore.before-restore.bak')
+    assert not recovery.exists()
+    assert restore_repository(tmp_path)['status'] == 'restored'
+    assert path.read_text() == original
+    assert recovery.read_bytes() == managed
+    assert path.with_name('config.toml.agentignore.bak').read_text() == original
+    with pytest.raises(ValueError):
+        restore_repository(tmp_path)
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize('obstacle', ['backup_symlink', 'temp', 'malformed', 'recovery'])
+def test_restore_refuses_unsafe_inputs_without_mutation(tmp_path, obstacle):
+    from agentignore.syncer import restore_repository
+    path = tmp_path / '.codex/config.toml'
+    path.parent.mkdir()
+    path.write_text('model="original"')
+    sync_repository(tmp_path)
+    before = path.read_bytes()
+    backup = path.with_name('config.toml.agentignore.bak')
+    if obstacle == 'backup_symlink':
+        backup.unlink()
+        backup.symlink_to(tmp_path / 'outside')
+    elif obstacle == 'malformed':
+        backup.write_text('[broken')
+    else:
+        suffix = 'agentignore.tmp' if obstacle == 'temp' else 'agentignore.before-restore.bak'
+        path.with_name('config.toml.' + suffix).write_text('existing')
+    with pytest.raises((ValueError, OSError)):
+        restore_repository(tmp_path)
+    assert path.read_bytes() == before
+
+
+def test_restore_missing_backup_and_stale_settings_are_actionable(tmp_path, capsys):
+    sync_repository(tmp_path)
+    assert main(['restore', '--path', str(tmp_path), '--json']) == 2
+    assert 'first-write' in capsys.readouterr().out
+    # Recover even when project preferences from a previous release need migration.
+    path = tmp_path / '.codex/config.toml'
+    path.with_name('config.toml.agentignore.bak').write_text('model="original"')
+    (tmp_path / '.agentignore.toml').write_text('version=1\n[project]\ntargets=["claude"]')
+    assert main(['restore', '--path', str(tmp_path), '--dry-run', '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['status'] == 'would_restore'

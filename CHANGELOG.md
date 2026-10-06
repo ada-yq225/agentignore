@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Commit to permanently free, MIT open-source development with Codex as the only supported client.
+- Remove the other-client adapter and update defaults, diagnostics, command help and reports.
+- Reject older multi-client preferences with an actionable Codex migration message. Existing unrelated client files remain untouched.
+- Add explicit backup restoration, dry-run previews and preserved pre-restoration snapshots.
+- Tighten project schema version validation and expand recovery/migration regression tests.
+- Replace commercial pricing and paid desktop plans with an open-source roadmap and contribution guide.
+
 ## 0.3.0 — Personal product MVP
 
 - Add versioned personal project preferences, secrets/balanced presets, client selection and read-only installation diagnostics.
