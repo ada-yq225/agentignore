@@ -1,217 +1,138 @@
-<div align="center">
+# agentignore
 
-# 🛡️ agentignore
+**Project-local deny policy compiler and static auditor for Codex and Claude Code.**
 
-**The Universal AI Context Shield & Ignore Compiler**  
-*Protect your secrets. Stop burning tokens. Unify your AI ignore files across 12+ coding assistants.*
+Maintain one `.agentignore` input and compile it into each client's documented configuration:
 
-[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen?style=flat-square)](https://github.com/ada-yq225/agentignore)
-[![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg?style=flat-square)](https://pypi.org/project/agentignore/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Zero External API](https://img.shields.io/badge/100%25%20Offline-Zero%20API%20Required-success?style=flat-square)](https://github.com/ada-yq225/agentignore)
-[![Tools Supported](https://img.shields.io/badge/AI%20Tools-12%20Supported-purple?style=flat-square)](https://github.com/ada-yq225/agentignore)
+| Target | Output | What is configured |
+| --- | --- | --- |
+| `codex` | `.codex/config.toml` | Named `agentignore` permission profile, based on `:workspace`, with workspace-scoped filesystem deny rules |
+| `claude` | `.claude/settings.json` | `permissions.deny` entries for built-in `Read` and `Edit` tools |
 
-[English](#english) | [中文说明](#chinese)
+This is a configuration tool, **not a universal security boundary**. A successful static check does not establish that a running agent cannot access your files.
 
-</div>
+## Quick start
 
----
+Install from this repository (the changes in 0.2 are not yet published to PyPI):
 
-<a name="english"></a>
-## 💡 Why agentignore?
-
-Every developer is now using AI coding assistants (**Cursor**, **Claude Code**, **Cline**, **GitHub Copilot**, **Windsurf**, **Aider**, etc.).
-
-However, **there is a silent, costly crisis in AI programming**:
-1. 🚨 **Secret Leaks**: In Cursor and Claude Code, `.gitignore` **only stops codebase search indexing**, but the AI agent can **still read `.env`, `.env.local`, and private keys** via internal tools! Without a dedicated ignore file, your production API keys may be sent directly to cloud LLMs.
-2. 💸 **Massive Token Waste**: If build outputs (`dist/`, `node_modules/`, `target/`) or massive lockfiles (`pnpm-lock.yaml`) aren't explicitly shielded, agents burn **30,000 ~ 100,000 unnecessary tokens per query**, draining your wallet and hitting model context limits.
-3. 🌀 **Extreme Ecosystem Fragmentation**: Every AI tool requires its own proprietary ignore file format:
-   * **Cursor**: `.cursorignore`
-   * **Claude Code**: `.claudeignore`
-   * **Cline**: `.clineignore`
-   * **GitHub Copilot**: `.copilotignore`
-   * **Windsurf**: `.windsurfignore`
-   * **JetBrains AI**: `.aiignore`
-   * **Aider**: `.aiderignore`
-   * **Continue.dev**: `.continueignore`
-   * **Sourcegraph Cody**: `.codyignore`
-   * **Gemini Code Assist**: `.geminiignore`
-   * **OpenCode**: `.opencodeignore`
-   * **Universal Standard**: `.agentignore`
-
-**`agentignore` solves this completely.** It is a zero-config, 100% offline, deterministic CLI that audits your repo for AI context leaks, estimates monetary dollar waste, deep-scans for hardcoded secrets, and compiles unified shields across all 12 tools in milliseconds.
-
----
-
-## ⚡ Quickstart
-
-### Option A: Zero Install (Run instantly with `uvx` or `pipx`)
-```bash
-# Instant audit: 0 seconds install, runs completely offline
-uvx agentignore check
-
-# Or with pipx:
-pipx run agentignore check
+```sh
+python -m pip install .
+agentignore sync --dry-run
+agentignore sync
+agentignore check --json
+agentignore diff --target codex
 ```
 
-### Option B: Standard Installation
-```bash
-pip install agentignore
+Both clients are selected by default. Use `--targets codex` or `--targets claude` for a single client. Unknown or removed target names fail explicitly.
+
+Before using the settings, review them and restart the client. Codex only loads project settings from trusted projects. Permission profiles are beta; use a current client that supports `default_permissions`, named profiles, `extends`, and filesystem `deny` rules. The documented migration baseline is Codex 0.138.0; the local sandbox canary was tested with 0.159.2 on macOS (see validation notes).
+
+## Input policy
+
+Sensitive defaults (`.env`, `.env.*`, private-key and credential filename patterns) are always added. `.agentignore` is optional, hand-maintained, and never rewritten:
+
+```gitignore
+# Optional project-specific exclusions
+/private-data/
+node_modules/
+dist/
+*.log
 ```
 
----
+The syntax is deliberately smaller than `.gitignore`:
 
-## 🖥️ Feature Highlights & Usage
+- A basename like `.env` or `*.key` matches at any depth.
+- `/private-data/` anchors at the project root; `private-data/` matches directory basenames at any depth.
+- A path containing a slash, like `config/*.json`, is rooted at the project root.
+- A trailing `/` expands to `/**`. `*`, `?`, and `**` are supported.
+- Negation (`!`), character classes, escapes, parent traversal, whitespace and parentheses are rejected before writing either output. Do not copy a full `.gitignore` into this file.
 
-### 1. Audit Your Repo (`agentignore check`)
-Scan for exposed secrets, unshielded build artifacts, and token bloat:
+`.gitignore` is **not automatically imported**. Version-control exclusions and agent access permissions serve different purposes. Artifact and lockfile exclusions can prevent useful debugging or dependency updates: choose them deliberately. `sync --include-lockfiles` adds lockfile deny rules explicitly.
 
-```bash
-agentignore check
-```
+The previous release generated `.claudeignore` and other vendor-named ignore files. These files do not count as permissions in 0.2. Migrate custom exclusions into the supported input syntax yourself; this release does not alter existing legacy files in your project.
 
-#### Advanced Audit Flags:
-```bash
-# Deep scan file contents for leaked API keys (OpenAI, AWS, GitHub PATs, etc.)
+## Safe synchronization
+
+`sync` preflights both outputs before writing. It merges Claude deny entries while preserving existing model, environment, hooks and allow rules. Codex TOML comments and unrelated settings are preserved. Existing files receive a first-write `*.agentignore.bak` backup, and repeated syncs are idempotent. No home-directory or managed settings are modified.
+
+Codex refuses to replace an existing selected profile or an unowned `agentignore` profile. Local legacy `sandbox_mode` / `sandbox_workspace_write` settings must be migrated explicitly; they take precedence over permission profiles. Inherited legacy settings and command-line overrides require your review too. Claude configurations using `bypassPermissions` are rejected.
+
+Synchronization is additive: previously compiled deny rules remain if you remove a pattern from the input. Remove obsolete entries from each output manually after review. Do not use the generated profile for custom read/write exceptions: mixed overrides are rejected. Symlink settings files/directories are refused. Each output is replaced atomically; a filesystem failure between outputs can still leave a partial sync, so inspect errors and backups.
+
+## Audit and reports
+
+```sh
 agentignore check --deep
-
-# Calculate estimated dollar waste per 100 queries on Claude 3.5 / GPT-4o
-agentignore check --cost
-
-# Export audit report to Markdown or JSON for team reviews / CI
-agentignore check --export security-audit.md
-
-# Switch language to Chinese or English
+agentignore check --export audit.json
+agentignore check --export audit.md
 agentignore --lang zh check
 ```
 
-#### Terminal Preview:
-```text
-🛡️  agentignore v0.1.0 — Universal AI Context Shield & Ignore Compiler
+Checks report files with missing modeled project-local deny rules, optional artifact recommendations, secret signatures, and malformed/conflicting configuration. Exit codes: `0` no static findings, `1` findings, `2` invalid input or an operational error. `--no-strict` makes findings return `0`; input errors still return `2`.
 
-Project Stacks: Node.js / TypeScript, Python   Files Scanned: 42
-Active Shields: ✗ .cursorignore ✗ .claudeignore ✗ .clineignore
+Reports explicitly include `assessment: static_configuration_only`, `runtime_verified: false`, configuration errors, and limitations. `.agentignore` alone never clears findings. Deep secret findings remain visible even when a deny rule covers the source file; rotate/remove real exposed credentials rather than merely excluding source code.
 
-⚠️  Context Leaks Detected (3 items exposed to AI)
-┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ Severity ┃ File Path        ┃ Category    ┃ Exposed To                 ┃ Tokens (Est.)┃ Cost / 100 Q┃
-┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
-│ CRITICAL │ .env.local       │ sensitive   │ .cursorignore, .claudeign… │           ~95│        $0.01│
-│ HIGH     │ dist/            │ bloat       │ .cursorignore, .claudeign… │      ~845,000│       $25.35│
-│ MEDIUM   │ pnpm-lock.yaml   │ lockfile    │ .cursorignore, .claudeign… │       ~48,200│        $1.45│
-└━━━━━━━━━━┴━━━━━━━━━━━━━━━━━━┴━━━━━━━━━━━━━┴━━━━━━━━━━━━━━━━━━━━━━━━━━━━┴━━━━━━━━━━━━━━┴━━━━━━━━━━━━━┘
+The inspector models project-root-anchored Claude `Read(/...)` rules and Codex deny-only workspace tables extending a built-in profile. Unsupported inheritance or mixed Codex read/write overrides are reported as unknown rather than protected. Alternative Claude path forms do not count as coverage in this conservative checker. Existing policy files, VCS directories and `.codex` / `.claude` configuration directories are not scanned for file findings. Symlinks are reported but not followed. Deep scanning skips binary files, files over 1 MB, and lines over 5000 characters. For comprehensive secret detection, use a dedicated secret scanner.
 
-🚨 CRITICAL RISK: 1 secret/credential files exposed to AI context!
-⚡ Token Waste: ~893,295 unnecessary tokens read per query (~$26.81 wasted per 100 queries on Claude/GPT-4o).
+## Verify the actual client
 
-👉 Recommendation: Run `agentignore sync` to auto-shield these files across all AI tools.
+Use fake canaries, never production credentials. For Codex, create `.env.agentignore-canary` containing a harmless string and `agentignore-public-canary.txt` containing another string, then run from the project root:
+
+```sh
+codex sandbox -P agentignore -C . -- /bin/cat agentignore-public-canary.txt
+codex sandbox -P agentignore -C . -- /bin/cat .env.agentignore-canary
 ```
 
----
+The first command should succeed; the second should fail with a permission error. This explicitly selects the profile. Separately confirm that ordinary sessions load the intended default profile; explicit selection does not prove project trust or configuration precedence. Platform failures are not a passing security check. Delete canaries after testing.
 
-### 2. Auto-Fix & Synchronize Across 12 AI Tools (`agentignore sync`)
-One command to shield your repository across all AI assistants:
+For Claude Code, review `/permissions`, restart from the project root, and ask it to read the same fake secret through its built-in Read tool. Verify refusal. Read/Edit deny rules also cover recognized Bash file commands in current Claude versions, but do **not** cover arbitrary scripts that open files indirectly. For stronger command isolation, configure Claude's OS sandbox separately. This release does not change sandbox or MCP policies.
 
-```bash
-agentignore sync
+## Limits of enforcement
+
+- Codex profiles govern sandboxed local commands. MCP, connectors, cloud environments, browser tools, and approved escalations have separate controls.
+- Claude deny rules do not form an OS-level barrier for arbitrary subprocesses or MCP tools.
+- User settings, managed policies, project trust, CLI overrides and bypass modes can change effective permissions.
+- Codex deny globs may be expanded at sandbox startup on some platforms. The generated scan depth is 20; files beyond the supported expansion depth or created later require runtime verification.
+- Files already included in chat, editor selections, environment variables, and external services are outside this scanner's assessment.
+
+See the official [Codex permissions](https://developers.openai.com/codex/permissions/), [Codex configuration reference](https://developers.openai.com/codex/config-reference/), [Claude permissions](https://code.claude.com/docs/en/permissions), [Claude settings](https://code.claude.com/docs/en/settings), and [Claude sandbox](https://code.claude.com/docs/en/sandboxing) documentation. Configuration formats can change.
+
+## Context estimates
+
+```sh
+agentignore cost --queries 100 --input-rate 3
 ```
 
-```text
- 🔄 Syncing AI Ignore Files  
-┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
-┃ Target File     ┃ Status  ┃
-┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
-│ .cursorignore   │ Created │
-│ .claudeignore   │ Created │
-│ .clineignore    │ Created │
-│ .copilotignore  │ Created │
-│ .windsurfignore │ Created │
-│ .aiignore       │ Created │
-│ .aiderignore    │ Created │
-│ .continueignore │ Created │
-│ .codyignore     │ Created │
-│ .geminiignore   │ Created │
-│ .opencodeignore │ Created │
-│ .agentignore    │ Created │
-└─────────────────┴─────────┘
+This estimates a **hypothetical full-read scenario**, using flagged text bytes / 4 and your explicit USD price per million input tokens. It is not measured usage or savings. Actual reads, tokenization, cache discounts, subscriptions and billing vary. No provider pricing is hardcoded.
 
-✓ Sync completed successfully! All 12 AI tools are now synchronized.
-🎉 Perfect! 0 leaks remaining. Your repository is now fully shielded.
-```
+## Git hook
 
----
-
-### 3. Compare Rules (`agentignore diff`)
-Compare `.gitignore` with `.cursorignore` (or any tool) to see missing exclusions:
-```bash
-agentignore diff --target cursor
-```
-
----
-
-### 4. Dollar Waste Calculator (`agentignore cost`)
-View a breakdown of financial waste across major model providers (Claude 3.5 Sonnet, GPT-4o, Gemini 1.5 Pro):
-```bash
-agentignore cost --queries 100
-```
-
----
-
-### 5. Automated Git Pre-commit Hook (`agentignore hook`)
-Ensure secrets and bloat files can never be committed or indexed:
-```bash
+```sh
 agentignore hook install
-# Automatically blocks commits that leak credentials to AI tools!
+agentignore hook uninstall
 ```
 
----
+The optional hook runs a working-tree static check. It is not a staged-index secret scanner and cannot guarantee secrets are never committed. Installation refuses to overwrite another tool's hook. Git worktree hook discovery and `core.hooksPath` are not supported in this release; integrate the CLI with your existing hook runner instead.
 
-## 🛡️ Supported AI Tools (12 Tools)
+## 中文说明
 
-| Tool | Target File | Supported |
-| :--- | :--- | :---: |
-| **Cursor IDE** | `.cursorignore` | ✅ |
-| **Claude Code (Anthropic)** | `.claudeignore` | ✅ |
-| **Cline / Roo-Cline** | `.clineignore` | ✅ |
-| **GitHub Copilot** | `.copilotignore` | ✅ |
-| **Codeium Windsurf** | `.windsurfignore` | ✅ |
-| **JetBrains AI Assistant** | `.aiignore` | ✅ |
-| **Aider** | `.aiderignore` | ✅ |
-| **Continue.dev** | `.continueignore` | ✅ |
-| **Sourcegraph Cody** | `.codyignore` | ✅ |
-| **Gemini Code Assist** | `.geminiignore` | ✅ |
-| **OpenCode** | `.opencodeignore` | ✅ |
-| **Universal Standard** | `.agentignore` | ✅ |
+agentignore 现在只针对 **Codex 和 Claude Code**，把统一的拒绝访问策略编译到真实配置中：
 
----
+- Codex：`.codex/config.toml` 中的命名权限配置，限制本地沙箱命令。
+- Claude Code：`.claude/settings.json` 中的 `Read` / `Edit` 拒绝规则。
+- `.agentignore` 仅是输入文件，不会自动让任何客户端受到保护；检查通过也不代表零泄漏。
 
-## 🔒 100% Deterministic & Verifiable
+先运行 `sync --dry-run` 查看将变更的文件，再运行 `sync`。已有配置会合并并备份；模型设置和其他配置会保留。存在旧沙箱配置、其他已选权限配置或不支持的规则时，先报告冲突，不自动覆盖。
 
-* **Zero External APIs**: 100% offline. No API key needed, zero network requests.
-* **100% Test Coverage**: 87 passing automated tests covering glob edge cases, directory pruning, and regex signatures.
-* **Idempotent**: Re-running `sync` preserves custom user rules and never produces duplicate lines.
+只支持路径、`*`、`?`、`**`，不支持 `!` 例外。默认加入敏感文件规则；构建产物、依赖目录和锁文件由你明确选择，不直接复制 `.gitignore`。拒绝规则是累加的，移除输入后需要手动审查并移除输出中的旧规则。
 
----
+重启客户端，确认项目受信任和权限配置已加载，再用假密钥文件验证拒绝读取。Codex 的 MCP、云端及提权执行，Claude 的任意脚本和 MCP，不在这次配置的统一保护范围内。成本输出是明确假设下的估算，不是实测节省费用。
 
-<a name="chinese"></a>
-## 🇨🇳 中文说明
+## Development
 
-### 解决的核心痛点
-1. **真实密钥泄露风险**：在 Cursor 和 Claude Code 中，`.gitignore` 仅阻止全局检索，**AI Agent 依然可以通过读取工具访问 `.env` 和私钥**！必须配置专属的 ignore 文件。
-2. **巨额 Token 浪费**：构建产物（`dist/`）、大型 Lockfile 未被忽略时，AI 每次对话都在后台读取这些垃圾文件，每轮提问白白浪费上万 Token 费用并导致编辑器卡顿。
-3. **多工具配置碎片化**：各大 AI 工具（Cursor、Claude、Cline、Copilot、Aider、Windsurf 等）各自为政，难以统合维护。
+```sh
+python -m pip install -e '.[dev]'
+python -m pytest -q
+```
 
-### 功能清单
-* 🌐 **原生中英双语支持**：通过 `--lang zh` 或自动检测系统环境，提供中文彩色终端界面。
-* 🛡️ **覆盖 12 大主流 AI 工具**：一键生成与对齐 `.cursorignore`、`.claudeignore`、`.aiderignore` 等全部规则。
-* 🔍 **深度机密内容扫描 (`--deep`)**：不仅检查文件名，还深度扫描文件内容中的 OpenAI、Anthropic、AWS、GitHub 泄露密钥。
-* 💰 **经济成本测算 (`cost` / `--cost`)**：精确测算仓库冗余上下文在 Claude 3.5 Sonnet / GPT-4o 下造成的美元浪费。
-* ⚖️ **规则比对 (`diff`)**：精确比对 `.gitignore` 与 AI 护盾文件的差集。
-* 🪝 **Git 提交拦截器 (`hook install`)**：一键安装本地 Git pre-commit 钩子，从源头杜绝未设防文件提交。
-* 📄 **审计报告导出 (`--export`)**：支持一键导出为 Markdown 或 JSON 报告，方便团队 PR 审查。
-
----
-
-## 📄 License
-
-MIT License. Open-source and free forever!
+MIT licensed. See [LICENSE](LICENSE).

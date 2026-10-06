@@ -1,17 +1,10 @@
-"""Tests for ignore diff engine."""
-
-from pathlib import Path
-from agentignore.syncer import compute_ignore_diff
+from agentignore.syncer import compute_ignore_diff, sync_repository
 
 
-def test_compute_ignore_diff(tmp_path: Path):
-    # .gitignore has two rules
-    (tmp_path / ".gitignore").write_text("dist/\nbuild/\n*.log\n", encoding="utf-8")
-    # .cursorignore only has dist/
-    (tmp_path / ".cursorignore").write_text("dist/\ncustom_rule/\n", encoding="utf-8")
-
-    diff_data = compute_ignore_diff(tmp_path, target_key="cursor")
-    assert "build/" in diff_data["missing_in_ai"]
-    assert "*.log" in diff_data["missing_in_ai"]
-    assert "dist/" not in diff_data["missing_in_ai"]
-    assert "custom_rule/" in diff_data["unique_in_ai"]
+def test_diff_compares_input_policy_to_actual_config(tmp_path):
+    assert '**/.env' in compute_ignore_diff(tmp_path)['missing_in_ai']
+    sync_repository(tmp_path)
+    for target in ('codex', 'claude'):
+        assert compute_ignore_diff(tmp_path, target)['missing_in_ai'] == []
+    (tmp_path / '.agentignore').write_text('/private/\n')
+    assert 'private/**' in compute_ignore_diff(tmp_path)['missing_in_ai']

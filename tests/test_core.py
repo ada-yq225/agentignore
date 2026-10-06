@@ -1,102 +1,99 @@
-"""Tests for core audit engine and ignore ruleset matching."""
-
-from pathlib import Path
+"""Regression tests for static audit boundaries and dangerous false negatives."""
+import json
 import pytest
-
 from agentignore.core import IgnoreRuleSet, audit_repository
+from agentignore.syncer import sync_repository
 
 
-class TestIgnoreRuleSet:
-    """Tests for the gitwildmatch-compliant IgnoreRuleSet."""
-
-    def test_basic_matching(self):
-        rules = IgnoreRuleSet(["node_modules/", "*.log", ".env*"])
-        assert rules.matches("node_modules/pkg/index.js") is True
-        assert rules.matches("app.log") is True
-        assert rules.matches("logs/debug.log") is True
-        assert rules.matches(".env.local") is True
-        assert rules.matches("src/index.ts") is False
-
-    def test_comment_and_blank_lines_ignored(self):
-        rules = IgnoreRuleSet(["# This is a comment", "", "   ", "*.tmp"])
-        assert rules.matches("file.tmp") is True
-        assert rules.matches("file.txt") is False
-
-    def test_negation_rules(self):
-        rules = IgnoreRuleSet(["*.log", "!important.log"])
-        assert rules.matches("debug.log") is True
-        assert rules.matches("important.log") is False
-
-    def test_load_from_file(self, tmp_path: Path):
-        ignore_file = tmp_path / ".customignore"
-        ignore_file.write_text("build/\n*.bak\n", encoding="utf-8")
-        rules = IgnoreRuleSet.from_file(ignore_file)
-        assert rules.matches("build/output.js") is True
-        assert rules.matches("notes.bak") is True
-        assert rules.matches("notes.txt") is False
+def test_gitignore_negation_order():
+    assert not IgnoreRuleSet(['*.log', '!important.log']).matches('important.log')
 
 
-class TestAuditRepository:
-    """Deterministic integration tests for audit_repository."""
+def test_input_file_cannot_shield_unconfigured_clients(tmp_path):
+    (tmp_path / '.agentignore').write_text('.env\n')
+    (tmp_path / '.env').write_text('DEMO=placeholder')
+    report = audit_repository(tmp_path)
+    assert not report.is_clean
+    assert report.critical_leaks_count == 1
+    assert report.leaks[0].unshielded_targets == ['.codex/config.toml', '.claude/settings.json']
+    assert report.to_dict()['runtime_verified'] is False
 
-    def test_clean_repository_with_complete_shields(self, tmp_path: Path):
-        # Create normal files
-        (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "main.py").write_text("print('hello')", encoding="utf-8")
-        (tmp_path / "README.md").write_text("# My Project", encoding="utf-8")
 
-        # Create all target ignore files with proper rules
-        shield_content = ".env*\n*.log\nnode_modules/\n"
-        for fname in [".cursorignore", ".claudeignore", ".clineignore", ".copilotignore", ".windsurfignore"]:
-            (tmp_path / fname).write_text(shield_content, encoding="utf-8")
+def test_generated_settings_cover_root_and_nested_secrets(tmp_path):
+    (tmp_path / 'src').mkdir()
+    for file in (tmp_path / '.env', tmp_path / 'src' / '.env.local', tmp_path / 'src' / 'key.pem'):
+        file.write_text('fake secret')
+    sync_repository(tmp_path)
+    report = audit_repository(tmp_path)
+    assert report.is_clean
+    assert report.to_dict()['assessment'] == 'static_configuration_only'
+    assert report.limitations
 
-        report = audit_repository(tmp_path)
-        assert report.is_clean is True
-        assert len(report.leaks) == 0
-        assert report.critical_leaks_count == 0
 
-    def test_detects_exposed_env_secret_file(self, tmp_path: Path):
-        # Leaky scenario: .env exists, but no AI ignore files exist
-        (tmp_path / ".env.local").write_text("DATABASE_URL=postgres://...", encoding="utf-8")
-        (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "index.js").write_text("console.log('hi');", encoding="utf-8")
+def test_legacy_claudeignore_is_not_a_permission(tmp_path):
+    (tmp_path / '.claudeignore').write_text('.env\n')
+    (tmp_path / '.env').write_text('placeholder')
+    assert not audit_repository(tmp_path, ['claude']).is_clean
 
-        report = audit_repository(tmp_path)
-        assert report.is_clean is False
-        assert report.critical_leaks_count == 1
 
-        env_leak = next(leak for leak in report.leaks if leak.path == ".env.local")
-        assert env_leak.category == "sensitive"
-        assert env_leak.severity == "CRITICAL"
-        assert ".cursorignore" in env_leak.unshielded_targets
-        assert ".claudeignore" in env_leak.unshielded_targets
+def test_malformed_config_cannot_pass_empty_repo(tmp_path):
+    (tmp_path / '.claude').mkdir()
+    (tmp_path / '.claude/settings.json').write_text('{broken')
+    report = audit_repository(tmp_path, ['claude'])
+    assert not report.is_clean
+    assert report.configuration_errors
 
-    def test_detects_git_ignored_file_missing_in_cursorignore(self, tmp_path: Path):
-        # .gitignore ignores dist/
-        (tmp_path / ".gitignore").write_text("dist/\n", encoding="utf-8")
-        (tmp_path / "dist").mkdir()
-        (tmp_path / "dist" / "bundle.js").write_text("var x = 1;" * 500, encoding="utf-8")
 
-        # Claude has .claudeignore, but Cursor has no .cursorignore
-        (tmp_path / ".claudeignore").write_text("dist/\n", encoding="utf-8")
+def test_custom_policy_is_audited(tmp_path):
+    (tmp_path / '.agentignore').write_text('internal/\n')
+    (tmp_path / 'internal').mkdir()
+    (tmp_path / 'internal/notes.txt').write_text('private')
+    assert audit_repository(tmp_path).leaks[0].category == 'policy'
 
-        report = audit_repository(tmp_path, target_names=["cursor", "claude"])
-        assert report.is_clean is False
 
-        dist_leak = next(leak for leak in report.leaks if "dist" in leak.path)
-        # It should be flagged because .cursorignore does NOT shield it
-        assert ".cursorignore" in dist_leak.unshielded_targets
-        # But .claudeignore DOES shield it, so claude should not be in unshielded targets
-        assert ".claudeignore" not in dist_leak.unshielded_targets
+def test_deep_secret_reported_even_when_configured(tmp_path):
+    (tmp_path / '.agentignore').write_text('app.py\n')
+    (tmp_path / 'app.py').write_text('key="ghp_' + 'a' * 36 + '"')
+    sync_repository(tmp_path)
+    report = audit_repository(tmp_path, deep_scan=True)
+    assert not report.is_clean
+    assert report.leaks[0].category == 'content_secret'
+    assert report.leaks[0].unshielded_targets == []
 
-    def test_universal_agentignore_shields_unconfigured_targets(self, tmp_path: Path):
-        # When .agentignore is present, it acts as a universal shield
-        (tmp_path / ".agentignore").write_text(".env*\ndist/\n", encoding="utf-8")
-        (tmp_path / ".env").write_text("SECRET=123", encoding="utf-8")
-        (tmp_path / "dist").mkdir()
-        (tmp_path / "dist" / "app.js").write_text("console.log(1);", encoding="utf-8")
 
-        report = audit_repository(tmp_path)
-        # Because .agentignore matches, no unshielded targets remain
-        assert report.is_clean is True
-        assert len(report.leaks) == 0
+def test_binary_size_does_not_become_tokens(tmp_path):
+    (tmp_path / 'bundle.bin').write_bytes(b'\x00' * 4000)
+    (tmp_path / '.agentignore').write_text('*.bin\n')
+    assert audit_repository(tmp_path).potential_context_tokens == 0
+
+
+def test_legacy_codex_mode_not_counted_as_deny_policy(tmp_path):
+    sync_repository(tmp_path)
+    path = tmp_path / '.codex/config.toml'
+    path.write_text('sandbox_mode="danger-full-access"\n' + path.read_text())
+    report = audit_repository(tmp_path)
+    assert not report.is_clean
+    assert 'override' in report.configuration_errors[0]
+
+
+def test_codex_mixed_overrides_not_treated_as_protected(tmp_path):
+    (tmp_path / '.codex').mkdir()
+    (tmp_path / '.codex/config.toml').write_text('''default_permissions="custom"
+[permissions.custom]
+extends=":workspace"
+[permissions.custom.filesystem.":workspace_roots"]
+"secrets"="deny"
+"secrets/open"="read"
+''')
+    assert audit_repository(tmp_path, ['codex']).configuration_errors
+
+
+def test_unknown_target_rejected(tmp_path):
+    with pytest.raises(ValueError, match='Supported targets'):
+        audit_repository(tmp_path, ['cursor'])
+
+
+def test_undefined_codex_profile_is_configuration_error(tmp_path):
+    (tmp_path / '.codex').mkdir()
+    (tmp_path / '.codex/config.toml').write_text('default_permissions="missing"')
+    assert audit_repository(tmp_path, ['codex']).configuration_errors

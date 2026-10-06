@@ -12,13 +12,13 @@ def test_export_markdown_report(tmp_path: Path):
         "is_clean": False,
         "scanned_files_count": 10,
         "critical_leaks_count": 1,
-        "total_wasted_tokens": 5000,
+        "potential_context_tokens": 5000,
         "leaks": [
             {
                 "path": ".env",
                 "severity": "CRITICAL",
                 "category": "sensitive",
-                "unshielded_targets": [".cursorignore"],
+                "unshielded_targets": [".claude/settings.json"],
                 "estimated_tokens": 100,
             }
         ],

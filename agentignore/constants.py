@@ -2,77 +2,15 @@
 
 from typing import Dict, List
 
-# Supported AI tools (12 major AI coding assistants and standards)
+# Only documented, implemented adapters are advertised.
 SUPPORTED_TARGETS: Dict[str, Dict[str, str]] = {
-    "cursor": {
-        "name": "Cursor IDE",
-        "filename": ".cursorignore",
-        "description": "Rules for Cursor Agent, Tab completion, and @ context",
-    },
-    "claude": {
-        "name": "Claude Code",
-        "filename": ".claudeignore",
-        "description": "Anthropic Claude Code CLI & Desktop Context Filter",
-    },
-    "cline": {
-        "name": "Cline / Roo-Cline",
-        "filename": ".clineignore",
-        "description": "Autonomous AI coding agent in VSCode",
-    },
-    "copilot": {
-        "name": "GitHub Copilot",
-        "filename": ".copilotignore",
-        "description": "GitHub Copilot repository content exclusion",
-    },
-    "windsurf": {
-        "name": "Codeium Windsurf",
-        "filename": ".windsurfignore",
-        "description": "Windsurf Cascade and Supercomplete context exclusion",
-    },
-    "jetbrains": {
-        "name": "JetBrains AI",
-        "filename": ".aiignore",
-        "description": "JetBrains AI Assistant context exclusion",
-    },
-    "aider": {
-        "name": "Aider",
-        "filename": ".aiderignore",
-        "description": "Aider pair programming CLI context exclusion",
-    },
-    "continue": {
-        "name": "Continue.dev",
-        "filename": ".continueignore",
-        "description": "Continue open-source AI code assistant",
-    },
-    "cody": {
-        "name": "Sourcegraph Cody",
-        "filename": ".codyignore",
-        "description": "Sourcegraph Cody context filtering",
-    },
-    "gemini": {
-        "name": "Gemini Code Assist",
-        "filename": ".geminiignore",
-        "description": "Google Cloud Gemini Code Assist context filter",
-    },
-    "opencode": {
-        "name": "OpenCode",
-        "filename": ".opencodeignore",
-        "description": "OpenCode CLI assistant context exclusion",
-    },
-    "universal": {
-        "name": "Universal Agent Standard",
-        "filename": ".agentignore",
-        "description": "Vendor-agnostic AI agent context specification",
-    },
+    "codex": {"name": "Codex", "filename": ".codex/config.toml",
+              "description": "Local sandbox permission profile (beta)"},
+    "claude": {"name": "Claude Code", "filename": ".claude/settings.json",
+               "description": "Built-in Read/Edit deny rules"},
 }
-
-TARGET_FILENAME_MAP: Dict[str, str] = {
-    key: info["filename"] for key, info in SUPPORTED_TARGETS.items()
-}
-
-FILENAME_TO_TARGET_MAP: Dict[str, str] = {
-    info["filename"]: key for key, info in SUPPORTED_TARGETS.items()
-}
+TARGET_FILENAME_MAP = {key: info["filename"] for key, info in SUPPORTED_TARGETS.items()}
+FILENAME_TO_TARGET_MAP = {v: k for k, v in TARGET_FILENAME_MAP.items()}
 
 # Critical security and secret patterns that must never be read by AI models
 SENSITIVE_PATTERNS: List[str] = [

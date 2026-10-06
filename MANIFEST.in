@@ -1,0 +1,4 @@
+include .agentignore
+include README.md
+include VALIDATION.md
+include LICENSE
