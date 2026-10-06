@@ -10,12 +10,14 @@ from agentignore.constants import (
     SUPPORTED_TARGETS,
     TARGET_FILENAME_MAP,
 )
+from agentignore.cost import estimate_dollar_cost
 from agentignore.detector import (
     detect_project_stacks,
     is_bloat_path,
     is_lockfile_path,
     is_sensitive_path,
 )
+from agentignore.scanner import scan_file_content
 
 
 class IgnoreRuleSet:
@@ -53,12 +55,17 @@ class Leak:
     """Represents an unshielded file or directory that is exposed to AI tools."""
 
     path: str
-    category: str  # "sensitive", "git_ignored", "bloat", "lockfile"
+    category: str  # "sensitive", "git_ignored", "bloat", "lockfile", "content_secret"
     severity: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW"
     description: str
     unshielded_targets: List[str]  # e.g. [".cursorignore", ".claudeignore"]
     size_bytes: int = 0
     estimated_tokens: int = 0
+
+    @property
+    def estimated_cost_100_queries(self) -> float:
+        """Estimated USD cost for 100 queries based on Claude 3.5 benchmark."""
+        return estimate_dollar_cost(self.estimated_tokens, queries=100)
 
 
 @dataclass
@@ -83,6 +90,10 @@ class AuditReport:
     def total_wasted_tokens(self) -> int:
         return sum(leak.estimated_tokens for leak in self.leaks)
 
+    @property
+    def total_wasted_cost_100_queries(self) -> float:
+        return estimate_dollar_cost(self.total_wasted_tokens, queries=100)
+
 
 def get_dir_size(dir_path: Path) -> int:
     """Recursively calculate the total size of a directory in bytes."""
@@ -105,10 +116,11 @@ def audit_repository(
     repo_path: Path,
     target_names: Optional[List[str]] = None,
     check_lockfiles: bool = True,
+    deep_scan: bool = False,
 ) -> AuditReport:
     """Audit a repository for files and directories exposed to AI coding tools."""
     if target_names is None:
-        target_names = ["cursor", "claude", "cline", "copilot", "windsurf"]
+        target_names = ["cursor", "claude", "cline", "copilot", "windsurf", "jetbrains", "aider"]
 
     target_files = {name: TARGET_FILENAME_MAP[name] for name in target_names if name in TARGET_FILENAME_MAP}
 
@@ -160,7 +172,6 @@ def audit_repository(
             is_dir_git_ignored = git_rules.matches(dir_slash)
 
             if is_dir_bloat or is_dir_git_ignored:
-                # Check if all AI targets properly shield this directory
                 unshielded: List[str] = []
                 for filename, ruleset in rule_sets.items():
                     has_own = ruleset.matches(dir_slash)
@@ -168,7 +179,6 @@ def audit_repository(
                     if not has_own and not has_uni:
                         unshielded.append(filename)
 
-                # Always prune this directory from descending into its thousands of files
                 dirs_to_prune.append(d)
 
                 if unshielded:
@@ -231,6 +241,15 @@ def audit_repository(
                 category = "lockfile"
                 severity = "MEDIUM"
                 description = f"Heavy lockfile ({estimated_tokens:,} tokens)"
+
+            # Deep content scan for un-ignored source files
+            if deep_scan and category is None and file_full.is_file():
+                content_leaks = scan_file_content(file_full)
+                if content_leaks:
+                    first = content_leaks[0]
+                    category = "content_secret"
+                    severity = "CRITICAL"
+                    description = f"Hardcoded {first.secret_type} on line {first.line_number} ({first.masked_sample})"
 
             if category is None:
                 continue

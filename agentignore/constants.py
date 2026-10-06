@@ -1,18 +1,18 @@
-"""Constants, standard pattern definitions, and target mappings for agentignore."""
+"""Constants, pattern definitions, and supported target mappings for agentignore."""
 
 from typing import Dict, List
 
-# Supported AI tools and their specific ignore files
+# Supported AI tools (12 major AI coding assistants and standards)
 SUPPORTED_TARGETS: Dict[str, Dict[str, str]] = {
     "cursor": {
-        "name": "Cursor",
+        "name": "Cursor IDE",
         "filename": ".cursorignore",
-        "description": "Cursor AI IDE (Rules for Agent, Tab, and context search)",
+        "description": "Rules for Cursor Agent, Tab completion, and @ context",
     },
     "claude": {
         "name": "Claude Code",
         "filename": ".claudeignore",
-        "description": "Anthropic Claude Code CLI & Desktop",
+        "description": "Anthropic Claude Code CLI & Desktop Context Filter",
     },
     "cline": {
         "name": "Cline / Roo-Cline",
@@ -22,22 +22,47 @@ SUPPORTED_TARGETS: Dict[str, Dict[str, str]] = {
     "copilot": {
         "name": "GitHub Copilot",
         "filename": ".copilotignore",
-        "description": "GitHub Copilot context exclusion",
+        "description": "GitHub Copilot repository content exclusion",
     },
     "windsurf": {
-        "name": "Windsurf",
+        "name": "Codeium Windsurf",
         "filename": ".windsurfignore",
-        "description": "Codeium Windsurf IDE Cascade context",
+        "description": "Windsurf Cascade and Supercomplete context exclusion",
     },
     "jetbrains": {
         "name": "JetBrains AI",
         "filename": ".aiignore",
         "description": "JetBrains AI Assistant context exclusion",
     },
+    "aider": {
+        "name": "Aider",
+        "filename": ".aiderignore",
+        "description": "Aider pair programming CLI context exclusion",
+    },
+    "continue": {
+        "name": "Continue.dev",
+        "filename": ".continueignore",
+        "description": "Continue open-source AI code assistant",
+    },
+    "cody": {
+        "name": "Sourcegraph Cody",
+        "filename": ".codyignore",
+        "description": "Sourcegraph Cody context filtering",
+    },
+    "gemini": {
+        "name": "Gemini Code Assist",
+        "filename": ".geminiignore",
+        "description": "Google Cloud Gemini Code Assist context filter",
+    },
+    "opencode": {
+        "name": "OpenCode",
+        "filename": ".opencodeignore",
+        "description": "OpenCode CLI assistant context exclusion",
+    },
     "universal": {
         "name": "Universal Agent Standard",
         "filename": ".agentignore",
-        "description": "Vendor-agnostic AI agent ignore specification",
+        "description": "Vendor-agnostic AI agent context specification",
     },
 }
 
@@ -81,7 +106,9 @@ SENSITIVE_PATTERNS: List[str] = [
     "*secret*.json",
     "*.token",
     ".aws/credentials",
+    ".aws/config",
     ".gcp/*.json",
+    ".kube/config",
     # Mobile and application signing keystores
     "*.keystore",
     "*.jks",
@@ -111,6 +138,7 @@ DEFAULT_BLOAT_PATTERNS: List[str] = [
     ".nuxt/",
     ".output/",
     ".docusaurus/",
+    ".astro/",
     "*.egg-info/",
     # Bundles, minified files & source maps
     "*.min.js",
@@ -144,11 +172,12 @@ DEFAULT_BLOAT_PATTERNS: List[str] = [
     "Thumbs.db",
 ]
 
-# Lockfiles: Can be 10,000 ~ 100,000+ tokens, massive bloat when fed to LLMs
+# Lockfiles: Can be 10,000 ~ 100,000+ tokens
 LOCKFILE_PATTERNS: List[str] = [
     "package-lock.json",
     "pnpm-lock.yaml",
     "yarn.lock",
+    "bun.lockb",
     "poetry.lock",
     "Pipfile.lock",
     "Cargo.lock",

@@ -47,9 +47,37 @@ class TestCLI:
         exit_code = main(["targets", "--path", str(tmp_path)])
         assert exit_code == 0
 
+    def test_cli_targets_chinese_language(self, tmp_path: Path):
+        exit_code = main(["--lang", "zh", "targets", "--path", str(tmp_path)])
+        assert exit_code == 0
+
     def test_cli_sync_dry_run(self, tmp_path: Path):
         (tmp_path / "index.js").write_text("console.log(1);", encoding="utf-8")
         exit_code = main(["sync", "--path", str(tmp_path), "--dry-run"])
         assert exit_code == 0
-        # In dry run, files should not be written to disk
         assert not (tmp_path / ".cursorignore").exists()
+
+    def test_cli_diff_command(self, tmp_path: Path):
+        (tmp_path / ".gitignore").write_text("dist/\n", encoding="utf-8")
+        exit_code = main(["diff", "--path", str(tmp_path)])
+        assert exit_code == 0
+
+    def test_cli_cost_command(self, tmp_path: Path):
+        (tmp_path / ".env").write_text("A" * 4000, encoding="utf-8")
+        exit_code = main(["cost", "--path", str(tmp_path), "--queries", "50"])
+        assert exit_code == 0
+
+    def test_cli_hook_command(self, tmp_path: Path):
+        (tmp_path / ".git").mkdir()
+        exit_install = main(["hook", "install", "--path", str(tmp_path)])
+        assert exit_install == 0
+        exit_uninstall = main(["hook", "uninstall", "--path", str(tmp_path)])
+        assert exit_uninstall == 0
+
+    def test_cli_check_with_export_and_deep_scan(self, tmp_path: Path):
+        export_file = tmp_path / "audit.md"
+        (tmp_path / "app.py").write_text('API_KEY = "sk-proj-1234567890abcdef1234567890"', encoding="utf-8")
+        exit_code = main(["check", "--path", str(tmp_path), "--deep", "--cost", "--export", str(export_file), "--no-strict"])
+        assert exit_code == 0
+        assert export_file.exists()
+        assert "agentignore Audit Report" in export_file.read_text(encoding="utf-8")

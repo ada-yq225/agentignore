@@ -17,6 +17,7 @@ STACK_SIGNATURES: Dict[str, List[str]] = {
         "pnpm-workspace.yaml",
         "bun.lockb",
     ],
+    "Next.js": ["next.config.js", "next.config.mjs", "next.config.ts"],
     "Python": [
         "pyproject.toml",
         "setup.py",
@@ -30,6 +31,11 @@ STACK_SIGNATURES: Dict[str, List[str]] = {
     "PHP": ["composer.json"],
     "Ruby": ["Gemfile"],
     ".NET / C#": ["*.csproj", "*.sln"],
+    "Flutter / Dart": ["pubspec.yaml"],
+    "iOS / Swift": ["Podfile", "Package.swift", "*.xcodeproj", "*.xcworkspace"],
+    "C / C++": ["CMakeLists.txt", "Makefile", "*.vcxproj"],
+    "Unity": ["ProjectSettings/ProjectSettings.asset"],
+    "Terraform": ["*.tf", "*.tfvars"],
     "Docker": ["Dockerfile", "docker-compose.yml", "compose.yaml"],
 }
 
@@ -39,10 +45,12 @@ STACK_SPECIFIC_PATTERNS: Dict[str, List[str]] = {
         ".npm/",
         ".yarn/",
         ".pnpm-store/",
-        ".next/",
-        ".nuxt/",
         "dist/",
         "build/",
+    ],
+    "Next.js": [
+        ".next/",
+        ".open-next/",
     ],
     "Python": [
         "__pycache__/",
@@ -53,6 +61,7 @@ STACK_SPECIFIC_PATTERNS: Dict[str, List[str]] = {
         ".ruff_cache/",
         ".venv/",
         "venv/",
+        "env/",
         "*.egg-info/",
     ],
     "Rust": [
@@ -80,6 +89,36 @@ STACK_SPECIFIC_PATTERNS: Dict[str, List[str]] = {
     ".NET / C#": [
         "bin/",
         "obj/",
+    ],
+    "Flutter / Dart": [
+        ".dart_tool/",
+        ".flutter-plugins",
+        "build/",
+    ],
+    "iOS / Swift": [
+        ".build/",
+        "DerivedData/",
+        "Pods/",
+    ],
+    "C / C++": [
+        "build/",
+        "cmake-build-*/",
+        "*.o",
+        "*.obj",
+        "*.a",
+        "*.lib",
+    ],
+    "Unity": [
+        "[Ll]ibrary/",
+        "[Tt]emp/",
+        "[Oo]bj/",
+        "[Bb]uild/",
+        "[Bb]uilds/",
+    ],
+    "Terraform": [
+        ".terraform/",
+        "*.tfstate",
+        "*.tfstate.*",
     ],
     "Docker": [],
 }
@@ -126,7 +165,6 @@ _LOCKFILE_SPEC = pathspec.PathSpec.from_lines("gitignore", LOCKFILE_PATTERNS)
 def is_sensitive_path(rel_path: str) -> bool:
     """Return True if the relative file path matches known sensitive patterns."""
     normalized = rel_path.replace("\\", "/")
-    # Check both the full path and the basename
     basename = Path(normalized).name
     return _SENSITIVE_SPEC.match_file(normalized) or _SENSITIVE_SPEC.match_file(basename)
 

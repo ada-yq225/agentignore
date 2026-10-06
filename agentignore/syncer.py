@@ -1,7 +1,7 @@
-"""Synchronizer and generator for AI ignore files."""
+"""Synchronizer, generator, and diff engine for AI ignore files."""
 
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 import re
 
 from agentignore.constants import (
@@ -80,7 +80,7 @@ def build_ignore_file_content(
     sections.append(GENERATED_HEADER_PREFIX)
     sections.append(
         "# Universal AI Context Shield: Prevents secret leaks & token waste\n"
-        "# Compatible with Cursor, Claude Code, Cline, Copilot, and Windsurf\n"
+        "# Compatible with Cursor, Claude Code, Cline, Copilot, Windsurf, Aider, etc.\n"
         "# Run `agentignore sync` to update, or add custom rules at the bottom."
     )
 
@@ -117,7 +117,7 @@ def build_ignore_file_content(
             bloat_lines.append(pat)
     sections.append("\n".join(bloat_lines))
 
-    # 4. Lockfiles (optional or commented)
+    # 4. Lockfiles
     if include_lockfiles:
         sections.append("\n# [4] Lockfiles (Large context token savers)")
         lock_lines = []
@@ -154,7 +154,7 @@ def sync_repository(
 ) -> Dict[str, str]:
     """Sync compiled ignore rules to target AI ignore files."""
     if targets is None:
-        targets = ["cursor", "claude", "cline", "copilot", "windsurf", "jetbrains", "universal"]
+        targets = list(SUPPORTED_TARGETS.keys())
 
     # Gather custom rules from any existing files
     all_custom_rules: Set[str] = set()
@@ -197,3 +197,31 @@ def sync_repository(
         results[filename] = status
 
     return results
+
+
+def compute_ignore_diff(
+    repo_path: Path, target_key: str = "cursor"
+) -> Dict[str, List[str]]:
+    """Compare .gitignore patterns with a target AI ignore file to show missing rules."""
+    git_patterns = set(read_gitignore_patterns(repo_path))
+    target_filename = TARGET_FILENAME_MAP.get(target_key, ".cursorignore")
+    target_path = repo_path / target_filename
+
+    target_patterns: Set[str] = set()
+    if target_path.exists():
+        try:
+            with open(target_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        target_patterns.add(stripped)
+        except Exception:
+            pass
+
+    missing_in_target = sorted(list(git_patterns - target_patterns))
+    unique_in_target = sorted(list(target_patterns - git_patterns))
+
+    return {
+        "missing_in_ai": missing_in_target,
+        "unique_in_ai": unique_in_target,
+    }
