@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 
 # Pre-compiled high-confidence secret signatures
 SECRET_SIGNATURES: List[Tuple[str, re.Pattern]] = [
-    ("OpenAI API Key", re.compile(r"\b(sk-[a-zA-Z0-9_-]{24,}|sk-proj-[a-zA-Z0-9_-]{30,})\b")),
+    ("OpenAI API Key", re.compile(r"\b(sk-(?!ant-)[a-zA-Z0-9_-]{24,}|sk-proj-[a-zA-Z0-9_-]{30,})\b")),
     ("Anthropic API Key", re.compile(r"\b(sk-ant-[a-zA-Z0-9_-]{30,})\b")),
     ("GitHub Token", re.compile(r"\b(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{50,})\b")),
     ("AWS Access Key ID", re.compile(r"\b(AKIA[0-9A-Z]{16})\b")),

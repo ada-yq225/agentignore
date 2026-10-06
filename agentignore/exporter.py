@@ -1,45 +1,26 @@
-"""Export audit reports to Markdown, JSON, and HTML formats."""
-
+"""Export static reports without claiming runtime enforcement."""
 import json
 from pathlib import Path
-from typing import Any, Dict
-
-from agentignore.cost import estimate_dollar_cost
 
 
-def export_markdown_report(report_data: Dict[str, Any], output_path: Path) -> None:
-    """Export audit report as a clean GitHub-flavored Markdown file."""
-    lines = [
-        "# 🛡️ agentignore Audit Report",
-        "",
-        f"- **Repository:** `{report_data.get('repo_path')}`",
-        f"- **Status:** {'✅ Clean (Protected)' if report_data.get('is_clean') else '⚠️ Leaks Detected'}",
-        f"- **Files Scanned:** {report_data.get('scanned_files_count')}",
-        f"- **Critical Secrets Exposed:** {report_data.get('critical_leaks_count')}",
-        f"- **Estimated Token Waste:** {report_data.get('total_wasted_tokens', 0):,} tokens/query",
-        "",
-    ]
-
-    leaks = report_data.get("leaks", [])
-    if leaks:
-        lines.append("## ⚠️ Detected Leaks")
-        lines.append("")
-        lines.append("| Severity | Path | Category | Exposed To | Est. Tokens |")
-        lines.append("| :--- | :--- | :--- | :--- | :---: |")
-        for leak in leaks:
-            exposed = ", ".join(leak.get("unshielded_targets", []))
-            lines.append(
-                f"| **{leak.get('severity')}** | `{leak.get('path')}` | {leak.get('category')} | {exposed} | ~{leak.get('estimated_tokens', 0):,} |"
-            )
-        lines.append("")
-        lines.append("> 💡 **Remediation:** Run `agentignore sync` to automatically shield these paths across all AI tools.")
-    else:
-        lines.append("## ✅ All Clean")
-        lines.append("No sensitive files or token bloat are exposed to any supported AI tools.")
-
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+def export_markdown_report(report_data: dict, output_path: Path) -> None:
+    lines = ['# 🛡️ agentignore Audit Report', '',
+             f'Repository: `{report_data.get("repo_path")}`', '',
+             'Assessment: static project-local configuration only. Runtime enforcement is **not verified**.', '',
+             f'No static findings: {report_data.get("is_clean")}',
+             f'Files scanned: {report_data.get("scanned_files_count")}',
+             f'Potential text context: ~{report_data.get("potential_context_tokens", 0):,} tokens (bytes / 4; not measured usage).', '',
+             '## Configuration errors', '']
+    lines += ['- ' + error for error in report_data.get('configuration_errors', [])]
+    lines += ['', '## File findings', '', '| Severity | Path | Category | Missing deny config |', '| --- | --- | --- | --- |']
+    for item in report_data.get('leaks', []):
+        def cell(value):
+            return str(value).replace('|', '\\|').replace('\n', ' ')
+        lines.append('| ' + ' | '.join(cell(v) for v in (item['severity'], item['path'], item['category'], ', '.join(item['unshielded_targets']))) + ' |')
+    lines += ['', '## Limits', '']
+    lines += ['- ' + item for item in report_data.get('limitations', [])]
+    output_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
-def export_json_report(report_data: Dict[str, Any], output_path: Path) -> None:
-    """Export audit report as a JSON file."""
-    output_path.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+def export_json_report(report_data: dict, output_path: Path) -> None:
+    output_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')

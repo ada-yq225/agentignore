@@ -55,7 +55,7 @@ class TestCLI:
         (tmp_path / "index.js").write_text("console.log(1);", encoding="utf-8")
         exit_code = main(["sync", "--path", str(tmp_path), "--dry-run"])
         assert exit_code == 0
-        assert not (tmp_path / ".cursorignore").exists()
+        assert not (tmp_path / ".codex").exists()
 
     def test_cli_diff_command(self, tmp_path: Path):
         (tmp_path / ".gitignore").write_text("dist/\n", encoding="utf-8")
@@ -64,7 +64,7 @@ class TestCLI:
 
     def test_cli_cost_command(self, tmp_path: Path):
         (tmp_path / ".env").write_text("A" * 4000, encoding="utf-8")
-        exit_code = main(["cost", "--path", str(tmp_path), "--queries", "50"])
+        exit_code = main(["cost", "--path", str(tmp_path), "--queries", "50", "--input-rate", "3"])
         assert exit_code == 0
 
     def test_cli_hook_command(self, tmp_path: Path):
@@ -77,7 +77,18 @@ class TestCLI:
     def test_cli_check_with_export_and_deep_scan(self, tmp_path: Path):
         export_file = tmp_path / "audit.md"
         (tmp_path / "app.py").write_text('API_KEY = "sk-proj-1234567890abcdef1234567890"', encoding="utf-8")
-        exit_code = main(["check", "--path", str(tmp_path), "--deep", "--cost", "--export", str(export_file), "--no-strict"])
+        exit_code = main(["check", "--path", str(tmp_path), "--deep", "--export", str(export_file), "--no-strict"])
         assert exit_code == 0
         assert export_file.exists()
         assert "agentignore Audit Report" in export_file.read_text(encoding="utf-8")
+
+
+def test_unknown_cli_target_fails(tmp_path):
+    assert main(['sync', '--path', str(tmp_path), '--targets', 'codex,typo']) == 2
+    assert not (tmp_path / '.codex').exists()
+
+
+def test_json_invalid_configuration_is_parseable(tmp_path, capsys):
+    (tmp_path / '.agentignore').write_text('!exception')
+    assert main(['check', '--path', str(tmp_path), '--json']) == 2
+    assert 'error' in json.loads(capsys.readouterr().out)

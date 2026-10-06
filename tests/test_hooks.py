@@ -22,3 +22,11 @@ def test_hook_install_and_uninstall_lifecycle(tmp_path: Path):
     un_ok, un_msg = uninstall_pre_commit_hook(tmp_path)
     assert un_ok is True
     assert not hook_file.exists()
+
+
+def test_does_not_overwrite_existing_hook(tmp_path):
+    (tmp_path / '.git/hooks').mkdir(parents=True)
+    hook = tmp_path / '.git/hooks/pre-commit'
+    hook.write_text('#!/bin/sh\necho existing\n')
+    assert install_pre_commit_hook(tmp_path)[0] is False
+    assert hook.read_text() == '#!/bin/sh\necho existing\n'

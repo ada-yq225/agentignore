@@ -5,7 +5,7 @@ from agentignore.i18n import I18n, set_language, t
 
 def test_i18n_english_translations():
     i18n = I18n("en")
-    assert "CLEAN" in i18n.t("all_clean_title")
+    assert "STATIC" in i18n.t("all_clean_title")
     assert "Files Scanned" in i18n.t("files_scanned")
 
 
