@@ -2,3 +2,5 @@ include .agentignore
 include README.md
 include VALIDATION.md
 include LICENSE
+include PRODUCT.md
+include CHANGELOG.md

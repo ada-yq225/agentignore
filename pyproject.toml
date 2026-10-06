@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentignore"
-version = "0.2.0"
-description = "Project-local deny policy compiler and auditor for Codex and Claude Code"
+version = "0.3.0"
+description = "Local-first privacy and context controls for personal Codex and Claude Code projects"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"

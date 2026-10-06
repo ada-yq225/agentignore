@@ -28,16 +28,11 @@ SENSITIVE_PATTERNS: List[str] = [
     "*.pkcs12",
     "*.pfx",
     "*.p12",
-    "*.crt",
-    "*.cer",
-    "*.der",
     # SSH keys
     "id_rsa",
-    "id_rsa.pub",
     "id_ed25519",
-    "id_ed25519.pub",
-    "id_ecdsa*",
-    "id_dsa*",
+    "id_ecdsa",
+    "id_dsa",
     # Cloud and API credentials
     "*credentials*.json",
     "*service-account*.json",

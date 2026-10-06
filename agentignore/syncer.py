@@ -1,5 +1,6 @@
 """Preflight all changes, then merge project-local Codex and Claude settings."""
 from pathlib import Path
+from dataclasses import dataclass
 import os
 import stat
 from agentignore.constants import TARGET_FILENAME_MAP
@@ -14,8 +15,28 @@ def validate_targets(targets=None):
     return list(dict.fromkeys(targets))
 
 
-def sync_repository(repo_path: Path, targets=None, dry_run=False, include_lockfiles=False):
-    targets = validate_targets(targets)
+@dataclass
+class PlannedChange:
+    path: Path
+    content: str
+    status: str
+    added_permissions: list
+
+    def summary(self, root):
+        return dict(path=str(self.path.relative_to(root)), status=self.status,
+                    added_permissions=self.added_permissions)
+
+
+def _permission_entries(config, target):
+    if target == 'claude':
+        return config.get('permissions', {}).get('deny', [])
+    scope = config.get('permissions', {}).get('agentignore', {}).get('filesystem', {}).get(':workspace_roots', {})
+    return [pattern for pattern, access in scope.items() if access == 'deny']
+
+
+def plan_repository(repo_path: Path, targets=None, dry_run=False, include_lockfiles=False):
+    from agentignore.project import load_settings
+    targets = validate_targets(targets if targets is not None else load_settings(repo_path).targets)
     patterns = read_policy(repo_path, include_lockfiles)
     planned = []
     for target in targets:
@@ -23,6 +44,7 @@ def sync_repository(repo_path: Path, targets=None, dry_run=False, include_lockfi
         if path.parent.is_symlink():
             raise ValueError(f'Refusing symlink config directory: {path.parent}')
         config = load_config(path, target)
+        before = load_config(path, target)
         backup = path.with_name(path.name + '.agentignore.bak')
         if backup.is_symlink():
             raise ValueError(f'Refusing symlink backup: {backup}')
@@ -32,10 +54,17 @@ def sync_repository(repo_path: Path, targets=None, dry_run=False, include_lockfi
             content = compile_codex(config, patterns, owned=owned)
         else:
             content = compile_claude(config, patterns)
-        planned.append((path, content, 'unchanged' if old == content else 'updated' if old is not None else 'created'))
+        added = sorted(set(_permission_entries(config, target)) - set(_permission_entries(before, target)))
+        planned.append(PlannedChange(path, content, 'unchanged' if old == content else 'updated' if old is not None else 'created', added))
+    return planned
+
+
+def sync_repository(repo_path: Path, targets=None, dry_run=False, include_lockfiles=False):
+    planned = plan_repository(repo_path, targets, dry_run, include_lockfiles)
     # Malformed inputs / conflicts fail before any settings file is written.
     if not dry_run:
-        for path, content, status in planned:
+        for change in planned:
+            path, content, status = change.path, change.content, change.status
             if status == 'unchanged':
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +80,7 @@ def sync_repository(repo_path: Path, targets=None, dry_run=False, include_lockfi
                 os.chmod(temp, mode)
                 stream.write(content)
             temp.replace(path)
-    return {str(path.relative_to(repo_path)): status for path, _, status in planned}
+    return {str(change.path.relative_to(repo_path)): change.status for change in planned}
 
 
 def compute_ignore_diff(repo_path: Path, target_key='codex'):

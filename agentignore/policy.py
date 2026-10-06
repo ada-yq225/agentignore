@@ -1,6 +1,7 @@
 """A deliberately small, portable deny-policy language, not gitignore syntax."""
 from pathlib import Path
 import re
+from functools import lru_cache
 from agentignore.constants import SENSITIVE_PATTERNS
 
 
@@ -25,7 +26,9 @@ def normalize_pattern(pattern: str) -> str:
 
 def read_policy(repo_path: Path, include_lockfiles: bool = False):
     from agentignore.constants import LOCKFILE_PATTERNS
-    patterns = list(SENSITIVE_PATTERNS)
+    from agentignore.project import PRESETS, load_settings
+    settings = load_settings(repo_path)
+    patterns = list(SENSITIVE_PATTERNS) + PRESETS[settings.preset] + settings.deny
     policy = repo_path / '.agentignore'
     if policy.is_symlink():
         raise ValueError('Refusing symlink input policy: .agentignore')
@@ -38,8 +41,9 @@ def read_policy(repo_path: Path, include_lockfiles: bool = False):
     return list(dict.fromkeys(normalize_pattern(p) for p in patterns))
 
 
-def matches(pattern: str, path: str) -> bool:
-    """Match anchored slash-aware globs; **/ may match zero directories."""
+@lru_cache(maxsize=1024)
+def _compile(pattern: str):
+    """Compile once per pattern, with a bounded cache independent of repository size."""
     out, i = '', 0
     while i < len(pattern):
         if pattern[i:i+3] == '**/':
@@ -57,4 +61,8 @@ def matches(pattern: str, path: str) -> bool:
         else:
             out += re.escape(pattern[i])
             i += 1
-    return re.fullmatch(out, path.rstrip('/')) is not None
+    return re.compile('(?:' + out + r')\Z')
+
+
+def matches(pattern: str, path: str) -> bool:
+    return _compile(pattern).fullmatch(path.rstrip('/')) is not None

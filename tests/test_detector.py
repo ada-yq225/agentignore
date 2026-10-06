@@ -26,12 +26,10 @@ class TestSensitiveDetection:
             "certs/server.key",
             "ssl/private.pem",
             "auth/id_rsa",
-            "auth/id_rsa.pub",
             "id_ed25519",
             "config/service-account.json",
             "keys/production-secret.json",
             "app.keystore",
-            "certs/server.crt",
         ],
     )
     def test_sensitive_files_are_correctly_identified(self, rel_path: str):
@@ -41,6 +39,8 @@ class TestSensitiveDetection:
         "rel_path",
         [
             "src/index.ts",
+            "auth/id_rsa.pub",
+            "certs/server.crt",
             "main.py",
             "README.md",
             "package.json",
